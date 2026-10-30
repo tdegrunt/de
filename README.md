@@ -108,7 +108,7 @@ no host ports are published.
 | `bin/de up` | Create or start this checkout's environment and prepare its databases. `--rebuild` after changing `.devcontainer/` |
 | `bin/de exec <cmd>` | Run a command in it, in the same directory relative to the checkout, e.g. `bin/de exec bin/rails test` |
 | `bin/de status` | Name, kind, containers, health and URLs |
-| `bin/de code [checkout]` | Open a checkout in VS Code inside its devcontainer, starting the environment first if needed. Takes a branch, environment name or worktree folder. `CODE=cursor` for another editor |
+| `bin/de code [checkout]` | Open a checkout in VS Code inside its devcontainer, starting the environment first if needed. Takes a branch, environment name, worktree folder name or a path in it. `CODE=cursor` for another editor |
 | `bin/de down` | Ephemeral: remove it with its data. Persistent: stop it, keeping the data (`--destroy-persistent` deletes it after typing the name) |
 | `bin/de prune` | Remove ephemeral environments whose worktree or branch is gone (`--yes` skips the prompt) |
 
@@ -142,6 +142,10 @@ bin/de prune             # catches anything removed without bin/de down
 ```
 
 `git worktree add` followed by `bin/de up` works the same.
+
+To open worktrees from Orca in VS Code inside their devcontainer, set the
+terminal command of VS Code under Settings → Open In to `de code`. Orca adds
+the worktree's path, and `de code <path>` opens the checkout that path is in.
 
 ## Local files and secrets
 

@@ -67,7 +67,8 @@ Commands:
   status             Show the environment's containers, health and URLs.
   code [<checkout>]  Open a checkout in VS Code inside its devcontainer,
                      starting it first if needed. <checkout> is a branch,
-                     environment name or worktree folder, default this one.
+                     environment name, worktree folder name or a path in
+                     it, default this one.
   down [--destroy-persistent]
                      Remove an ephemeral environment with its data. A
                      persistent one is only stopped, unless
@@ -668,7 +669,7 @@ EOF
 cmd_code() {
   local target="$ENV_PATH" path branch name host_hex
   if [ "$#" -gt 1 ]; then
-    die "usage: bin/de code [branch | environment | folder]"
+    die "usage: bin/de code [branch | environment | folder | path]"
   elif [ "$#" -eq 1 ]; then
     target=""
     while IFS=$'\t' read -r path branch; do
@@ -678,6 +679,11 @@ cmd_code() {
         break
       fi
     done < <(checkouts)
+    # Or any folder in a checkout, e.g. the absolute path Orca's "Open in" adds
+    if [ -z "$target" ] && [ -d "$1" ]; then
+      target="$(cd "$(git -C "$1" rev-parse --show-toplevel)" && pwd -P)" ||
+        die "$1 is not inside a git checkout"
+    fi
 
     if [ -z "$target" ]; then
       warn "no checkout of $ENV_REPO matches $1, these exist:"
@@ -811,6 +817,12 @@ if [ -n "$DE_TEMPLATE" ]; then
     help | -h | --help) usage_source; exit ;;
     init) cmd_init "$@"; exit ;;
   esac
+  # `code <folder>` (Orca's "Open in" runs it from /) opens the checkout that
+  # folder is in, from inside it, so a checkout's older bin/de handles it too
+  if [ "$command" = code ] && [ "$#" -eq 1 ] && [ -d "$1" ]; then
+    cd "$1"
+    shift
+  fi
   # Everything else is for the checkout the current directory is in
   checkout="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git checkout"
   [ -f "$checkout/.devcontainer/env.conf" ] && [ -x "$checkout/bin/de" ] ||
