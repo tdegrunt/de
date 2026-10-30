@@ -1,0 +1,5 @@
+{
+  "extensions": ["anthropic.claude-code", "openai.chatgpt", "kilocode.kilo-code"],
+  "npm": ["@anthropic-ai/claude-code", "@openai/codex", "@kilocode/cli"],
+  "features": {}
+}
