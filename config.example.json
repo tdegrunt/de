@@ -1,5 +1,7 @@
 {
   "extensions": ["anthropic.claude-code", "openai.chatgpt", "kilocode.kilo-code"],
   "npm": ["@anthropic-ai/claude-code", "@openai/codex", "@kilocode/cli"],
-  "features": {}
+  "features": {},
+  "home": [".claude", ".codex", ".config/kilo", ".local/share/kilo"],
+  "env": { "CLAUDE_CONFIG_DIR": "/home/vscode/.claude" }
 }

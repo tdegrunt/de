@@ -176,7 +176,9 @@ on the Mac (`DE_CONFIG` for another file), see
 {
   "extensions": ["anthropic.claude-code", "openai.chatgpt", "kilocode.kilo-code"],
   "npm": ["@anthropic-ai/claude-code", "@openai/codex", "@kilocode/cli"],
-  "features": {}
+  "features": {},
+  "home": [".claude", ".codex", ".config/kilo", ".local/share/kilo"],
+  "env": { "CLAUDE_CONFIG_DIR": "/home/vscode/.claude" }
 }
 ```
 
@@ -185,8 +187,16 @@ on the Mac (`DE_CONFIG` for another file), see
 - `npm`: packages installed globally into the image, so their commands work
   in every terminal and with `bin/de exec`.
 - `features`: more devcontainer features, as in `devcontainer.json`.
+- `home`: folders in the container's home directory that every environment
+  shares, kept on the Mac in `~/.local/state/de/home/`. They survive rebuilds
+  and `bin/de down`, so you log in to Claude Code, Codex and Kilo once, not
+  once per environment. Separate from the Mac's own `~/.claude` and
+  `~/.codex`.
+- `env`: environment variables in the container. `CLAUDE_CONFIG_DIR` keeps
+  Claude Code's `.claude.json` inside `~/.claude`, which a single file mount
+  couldn't share safely.
 
 `bin/de initialize` turns it into a local feature, `.devcontainer/de-host/`
 (ignored), which `devcontainer.json` includes as `./de-host`. Without the file
-the feature installs nothing. It's part of the image, so a change applies
-after `bin/de up --rebuild`, which keeps the data.
+the feature installs nothing. It's part of the image and the container, so a
+change applies after `bin/de up --rebuild`, which keeps the data.
