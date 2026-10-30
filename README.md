@@ -12,6 +12,10 @@ worktree and from editors, without this repository. What differs per
 repository lives in its `.devcontainer/env.conf`, `docker-compose.yml`,
 `devcontainer.json` and `postStart.sh`.
 
+## Worktrees
+
+What are worktrees? Git has a really good [documentation on worktrees](https://git-scm.com/docs/git-worktree). In short, a worktree allows you to have multiple working directories for the same repository, each checked out to a different branch. This is useful for working on multiple branches simultaneously without having to constantly switch branches in a single working directory.
+
 ## Install
 
 ```sh
