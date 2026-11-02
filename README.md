@@ -104,8 +104,8 @@ no host ports are published.
 
 | Command | |
 | --- | --- |
-| `bin/de new <branch>` | Create a worktree next to the main checkout (`<repo>-<branch>`) and start its environment. Existing local or remote branches are checked out, new ones start from the default branch (`--from <ref>` for another) |
-| `bin/de up` | Create or start this checkout's environment and prepare its databases. `--rebuild` after changing `.devcontainer/` |
+| `bin/de new <branch>` | Create a worktree next to the main checkout (`<repo>-<branch>`) and start its environment. Existing local or remote branches are checked out, new ones start from the default branch (`--from <ref>` for another). `--no-trust` as for `up` |
+| `bin/de up` | Create or start this checkout's environment and prepare its databases. `--rebuild` after changing `.devcontainer/`. Trusts the checkout's mise config on the host, `--no-trust` skips that |
 | `bin/de exec <cmd>` | Run a command in it, in the same directory relative to the checkout, e.g. `bin/de exec bin/rails test` |
 | `bin/de status` | Name, kind, containers, health and URLs |
 | `bin/de code [checkout]` | Open a checkout in VS Code inside its devcontainer, starting the environment first if needed. Takes a branch, environment name, worktree folder name or a path in it. `CODE=cursor` for another editor |
@@ -158,6 +158,13 @@ registry token for `bundle install`, go in `mise.local.toml`:
 [env]
 BUNDLE_RUBYGEMS__PKG__GITHUB__COM = "..."
 ```
+
+mise on the Mac refuses a checkout's config until it's trusted, and
+`bin/de` runs commands there through it too, like `npx`. So `bin/de up`
+trusts the checkout's `mise.toml` and `mise.local.toml` on the host, as
+`postStart.sh` does in the container. Trust lets a config set environment
+variables and run code, so pass `--no-trust` to `bin/de up` or `bin/de new`
+for a branch you don't trust yet, and trust it yourself with `mise trust`.
 
 ## System tests
 
