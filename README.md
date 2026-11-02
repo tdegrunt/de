@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/tdegrunt/de/main/install.sh | sh -s
 ```
 
 To update it later, run `de upgrade` (or the installer again), then
-`de init` in a repository to update its `bin/de`.
+`de update` in a repository to update its `bin/de`.
 
 Working on de itself, link your own checkout instead:
 `ln -sfn ~/Developer/entdec/de/bin/de ~/.local/bin/de`.
@@ -60,7 +60,8 @@ de init ~/code/myapp    # or `de init` from inside it
 ```
 
 - Always updated: `bin/de`. Don't change it in a repository, change it here
-  and run `de init` there again.
+  and run `de update` there. It's `de init` for a repository that's set up
+  already: it refuses one that isn't.
 - Copied once, then the repository's own: everything in
   [template/](template/), `.devcontainer/` (`env.conf`, `devcontainer.json`,
   `docker-compose.yml`, `postStart.sh`), `.worktreeinclude` and `orca.yaml`.

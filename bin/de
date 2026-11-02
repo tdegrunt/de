@@ -93,7 +93,7 @@ Examples:
   bin/de code main
 
 Settings: .devcontainer/env.conf, your own tools: $DE_CONFIG,
-docs: $DE_DOCS. To update bin/de, run \`de init\` from the de repository.
+docs: $DE_DOCS. To update bin/de, run \`de update\` from the de repository.
 EOF
 }
 
@@ -109,11 +109,13 @@ command to the bin/de of the checkout you're in.
 Commands:
   init [<repository>] [--force]
                      Set up development environments in a repository (default
-                     the current one), or update its bin/de. Repository
-                     specific files that already exist there are kept, unless
-                     --force is given.
+                     the current one). Repository specific files that already
+                     exist there are kept, unless --force is given.
+  update [<repository>] [--force]
+                     Update a repository's bin/de, and add what's new in the
+                     setup, like init but only where it's set up already.
   upgrade            Update this copy of de with a git pull. Then run de
-                     init in a repository to update its bin/de.
+                     update in a repository to update its bin/de.
   help               Show this help.
 
 Run by the current checkout's bin/de (see bin/de help there):
@@ -410,9 +412,10 @@ cmd_initialize() {
 # Copies the setup into a repository, from the de repository. bin/de is
 # generic and always updated; the template is repository
 # specific, a starting point that is only copied when missing, or with --force.
+# As de update, the same for a repository that's set up already.
 cmd_init() {
   local target="" force=false arg rel src common repo up_command entry
-  local usage_line="usage: de init [<repository>] [--force]"
+  local usage_line="usage: de $command [<repository>] [--force]"
   for arg in "$@"; do
     case "$arg" in
       --force) force=true ;;
@@ -425,6 +428,9 @@ cmd_init() {
   target="$(cd "$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" && pwd -P)" ||
     die "$target isn't a git checkout"
   [ "$target" != "$DE_ROOT" ] || die "$target is the de repository itself"
+  if [ "$command" = update ] && [ ! -f "$target/.devcontainer/env.conf" ]; then
+    die "$target isn't set up yet, run: de init"
+  fi
 
   common="$(cd "$target" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
   repo="$(env_sanitize "$(basename "$(dirname "$common")")")"
@@ -435,7 +441,11 @@ cmd_init() {
   else
     up_command=""
   fi
-  log "Setting up development environments in $target ($repo)"
+  if [ "$command" = update ]; then
+    log "Updating development environments in $target ($repo)"
+  else
+    log "Setting up development environments in $target ($repo)"
+  fi
 
   # Generic: always the same as in the de repository
   if cmp -s "$DE_ROOT/bin/de" "$target/bin/de"; then
@@ -478,6 +488,11 @@ cmd_init() {
     printf '%s\n' "$entry" >> "$target/.gitignore"
   done
 
+  if [ "$command" = update ]; then
+    log "Done, review the changes in $target and commit them"
+    return
+  fi
+
   cat <<EOF
 
 Done. Review the repository specific files for $repo, then start it:
@@ -491,12 +506,12 @@ Done. Review the repository specific files for $repo, then start it:
 
   cd $target && bin/de up
 
-Run de init there again later to update its bin/de.
+Run de update there later to update its bin/de.
 EOF
 }
 
 # Pulls the de repository, as install.sh does when it's already installed.
-# Repositories keep their bin/de until de init runs there again.
+# Repositories keep their bin/de until de update runs there.
 cmd_upgrade() {
   local before after
   [ "$#" -eq 0 ] || die "usage: de upgrade"
@@ -510,7 +525,7 @@ cmd_upgrade() {
     return
   fi
   git -C "$DE_ROOT" log --oneline --no-decorate "$before..$after" >&2
-  log "Updated, run de init in a repository to update its bin/de"
+  log "Updated, run de update in a repository to update its bin/de"
 }
 
 cmd_new() {
@@ -870,7 +885,7 @@ command="${1:-help}"
 if [ -n "$DE_TEMPLATE" ]; then
   case "$command" in
     help | -h | --help) usage_source; exit ;;
-    init) cmd_init "$@"; exit ;;
+    init | update) cmd_init "$@"; exit ;;
     upgrade) cmd_upgrade "$@"; exit ;;
   esac
   # `code <folder>` (Orca's "Open in" runs it from /) opens the checkout that
@@ -889,7 +904,7 @@ fi
 case "$command" in
   help | -h | --help) usage; exit ;;
   initialize | new | up | exec | status | code | down | prune) ;;
-  init | upgrade) die "run de $command from the de repository, which bin/de comes from" ;;
+  init | update | upgrade) die "run de $command from the de repository, which bin/de comes from" ;;
   *) usage >&2; die "unknown command: $command" ;;
 esac
 
