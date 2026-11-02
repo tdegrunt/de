@@ -43,22 +43,14 @@ else
   exit 1
 fi
 
-usage() {
-  cat <<EOF
-Usage: bin/de <command> [arguments]
-
-Every checkout of this repository, the main one and each git worktree, gets
-its own development environment: a devcontainer with its own services,
-volumes and network. Environments for ${PRIMARY_BRANCHES[*]} ${PERSISTENT_BRANCHES[*]} are
-persistent and keep their data, all others are ephemeral. A primary branch
-(${PRIMARY_BRANCHES[*]}) gets one named $ENV_REPO, the others $ENV_REPO-<branch>.
-
-Commands:
+# The commands of a repository's bin/de, also listed by the de repository's help
+usage_commands() {
+  cat <<'EOF'
   new <branch> [folder] [--from <ref>] [--no-trust]
                      Create a worktree for a branch (next to the main checkout
-                     as $ENV_REPO-<branch> unless a folder is given) and start
-                     its environment. New branches start from the default
-                     branch, or from --from. --no-trust as for up.
+                     as <repository>-<branch> unless a folder is given) and
+                     start its environment. New branches start from the
+                     default branch, or from --from. --no-trust as for up.
   up [--rebuild] [--no-trust]
                      Create or start this checkout's environment and prepare
                      its databases. --rebuild recreates the containers after
@@ -77,6 +69,21 @@ Commands:
                      --destroy-persistent is given and its name confirmed.
   prune [--yes]      Remove ephemeral environments whose worktree or branch
                      is gone. --yes skips the confirmation.
+EOF
+}
+
+usage() {
+  cat <<EOF
+Usage: bin/de <command> [arguments]
+
+Every checkout of this repository, the main one and each git worktree, gets
+its own development environment: a devcontainer with its own services,
+volumes and network. Environments for ${PRIMARY_BRANCHES[*]} ${PERSISTENT_BRANCHES[*]} are
+persistent and keep their data, all others are ephemeral. A primary branch
+(${PRIMARY_BRANCHES[*]}) gets one named $ENV_REPO, the others $ENV_REPO-<branch>.
+
+Commands:
+$(usage_commands)
   help               Show this help.
 
 Examples:
@@ -105,9 +112,12 @@ Commands:
                      the current one), or update its bin/de. Repository
                      specific files that already exist there are kept, unless
                      --force is given.
+  upgrade            Update this copy of de with a git pull. Then run de
+                     init in a repository to update its bin/de.
   help               Show this help.
-  <command>          Any bin/de command, run by the current checkout's bin/de,
-                     e.g. de up, de exec bin/rails test. See bin/de help there.
+
+Run by the current checkout's bin/de (see bin/de help there):
+$(usage_commands)
 
 Your own tools for every environment: $DE_CONFIG
 EOF
@@ -485,6 +495,24 @@ Run de init there again later to update its bin/de.
 EOF
 }
 
+# Pulls the de repository, as install.sh does when it's already installed.
+# Repositories keep their bin/de until de init runs there again.
+cmd_upgrade() {
+  local before after
+  [ "$#" -eq 0 ] || die "usage: de upgrade"
+  git -C "$DE_ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "$DE_ROOT isn't a git checkout"
+  before="$(git -C "$DE_ROOT" rev-parse HEAD)"
+  log "Updating $DE_ROOT"
+  git -C "$DE_ROOT" pull --ff-only --quiet || die "couldn't update $DE_ROOT"
+  after="$(git -C "$DE_ROOT" rev-parse HEAD)"
+  if [ "$before" = "$after" ]; then
+    log "Already up to date"
+    return
+  fi
+  git -C "$DE_ROOT" log --oneline --no-decorate "$before..$after" >&2
+  log "Updated, run de init in a repository to update its bin/de"
+}
+
 cmd_new() {
   local branch="" folder="" from="" file dest up_args=()
   local usage_line="usage: bin/de new <branch> [folder] [--from <ref>] [--no-trust]"
@@ -843,6 +871,7 @@ if [ -n "$DE_TEMPLATE" ]; then
   case "$command" in
     help | -h | --help) usage_source; exit ;;
     init) cmd_init "$@"; exit ;;
+    upgrade) cmd_upgrade "$@"; exit ;;
   esac
   # `code <folder>` (Orca's "Open in" runs it from /) opens the checkout that
   # folder is in, from inside it, so a checkout's older bin/de handles it too
@@ -860,7 +889,7 @@ fi
 case "$command" in
   help | -h | --help) usage; exit ;;
   initialize | new | up | exec | status | code | down | prune) ;;
-  init) die "run de init from the de repository, which bin/de comes from" ;;
+  init | upgrade) die "run de $command from the de repository, which bin/de comes from" ;;
   *) usage >&2; die "unknown command: $command" ;;
 esac
 

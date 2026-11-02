@@ -31,6 +31,9 @@ in:
 curl -fsSL https://raw.githubusercontent.com/tdegrunt/de/main/install.sh | sh -s -- init
 ```
 
+To update it later, run `de upgrade` (or the installer again), then
+`de init` in a repository to update its `bin/de`.
+
 Working on de itself, link your own checkout instead:
 `ln -sfn ~/Developer/entdec/de/bin/de ~/.local/bin/de`.
 
