@@ -59,6 +59,23 @@ installed), Git 2.48 or later, and jq when you have a
 de init ~/code/myapp    # or `de init` from inside it
 ```
 
+- Named after the main checkout's folder, lowercased with anything but
+  letters, digits and dashes replaced: `~/code/myapp` becomes `myapp`. That
+  name is `ENV_REPO` in `env.conf`, the start of every environment's name
+  (see [Kinds](#kinds)). Give it another with `--name`, which you need when
+  two repositories have folders of the same name, as their environments
+  would otherwise get the same names and share containers and volumes:
+
+  ```sh
+  de init ~/code/slimmegroep/server --name slimmegroep
+  de init ~/code/boxture/server --name boxture
+  ```
+
+  The name is kept from then on: `de update` reads it from `env.conf`. To
+  rename a repository later, run `bin/de down` in each of its checkouts
+  first, then change `ENV_REPO` in `env.conf` (and `"name"` in
+  `devcontainer.json`). `de init --name` refuses to, unless `--force` is
+  given, which replaces the repository specific files with the template too.
 - Always updated: `bin/de`. Don't change it in a repository, change it here
   and run `de update` there. It's `de init` for a repository that's set up
   already: it refuses one that isn't.
@@ -115,9 +132,13 @@ no host ports are published.
 | `bin/de code [checkout]` | Open a checkout in VS Code inside its devcontainer, starting the environment first if needed. Takes a branch, environment name, worktree folder name or a path in it. `CODE=cursor` for another editor |
 | `bin/de down` | Ephemeral: remove it with its data. Persistent: stop it, keeping the data (`--destroy-persistent` deletes it after typing the name) |
 | `bin/de prune` | Remove ephemeral environments whose worktree or branch is gone (`--yes` skips the prompt) |
+| `de init [repo]` | Set up a repository (default the current one), see [Setting up a repository](#setting-up-a-repository). `--name <name>` for its `ENV_REPO`, `--force` to replace its repository specific files with the template |
+| `de update [repo]` | Update a set-up repository's `bin/de` and add new template files, keeping its name. Takes `--name` and `--force` as `init` does |
+| `de upgrade` | Update de itself, a `git pull` of the copy `de` runs from |
 
-`de <command>` does the same from anywhere inside a checkout. Every command
-prints the docker and devcontainer commands it runs.
+`init`, `update` and `upgrade` are run by `de`, the de repository's copy.
+Any other `de <command>` does the same as `bin/de` from anywhere inside a
+checkout. Every command prints the docker and devcontainer commands it runs.
 
 ## Worktrees and folder layout
 

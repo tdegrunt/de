@@ -107,11 +107,14 @@ repository's copy ($DE_ROOT): it sets repositories up, and hands every other
 command to the bin/de of the checkout you're in.
 
 Commands:
-  init [<repository>] [--force]
+  init [<repository>] [--name <name>] [--force]
                      Set up development environments in a repository (default
                      the current one). Repository specific files that already
-                     exist there are kept, unless --force is given.
-  update [<repository>] [--force]
+                     exist there are kept, unless --force is given. --name
+                     sets ENV_REPO, the prefix of its environment names,
+                     default the repository's folder name: needed when two
+                     repositories have folders of the same name.
+  update [<repository>] [--name <name>] [--force]
                      Update a repository's bin/de, and add what's new in the
                      setup, like init but only where it's set up already.
   upgrade            Update this copy of de with a git pull. Then run de
@@ -413,16 +416,23 @@ cmd_initialize() {
 # generic and always updated; the template is repository
 # specific, a starting point that is only copied when missing, or with --force.
 # As de update, the same for a repository that's set up already.
+# The repository's name (ENV_REPO, @REPO@ in the template) is --name, else
+# the ENV_REPO it already has, else its main checkout's folder name.
 cmd_init() {
-  local target="" force=false arg rel src common repo up_command entry
-  local usage_line="usage: de $command [<repository>] [--force]"
-  for arg in "$@"; do
-    case "$arg" in
-      --force) force=true ;;
+  local target="" force=false name="" rel src common repo current up_command entry
+  local usage_line="usage: de $command [<repository>] [--name <name>] [--force]"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --force) force=true; shift ;;
+      --name) [ "$#" -ge 2 ] || die "$usage_line"; name="$2"; shift 2 ;;
+      --name=*) name="${1#--name=}"; shift ;;
       -*) die "$usage_line" ;;
-      *) [ -z "$target" ] || die "$usage_line"; target="$arg" ;;
+      *) [ -z "$target" ] || die "$usage_line"; target="$1"; shift ;;
     esac
   done
+  if [ -n "$name" ] && [ "$(env_sanitize "$name")" != "$name" ]; then
+    die "--name $name: use lowercase letters, digits and dashes, e.g. $(env_sanitize "$name")"
+  fi
   target="${target:-$PWD}"
   [ -d "$target" ] || die "$target doesn't exist"
   target="$(cd "$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" && pwd -P)" ||
@@ -432,8 +442,24 @@ cmd_init() {
     die "$target isn't set up yet, run: de init"
   fi
 
-  common="$(cd "$target" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
-  repo="$(env_sanitize "$(basename "$(dirname "$common")")")"
+  # In a subshell, env.conf is shell and sets more than ENV_REPO
+  current=""
+  if [ -f "$target/.devcontainer/env.conf" ]; then
+    current="$(ENV_REPO="" && source "$target/.devcontainer/env.conf" && printf '%s' "$ENV_REPO")"
+  fi
+  # Renaming would leave environments behind under the old name
+  if [ -n "$name" ] && [ -n "$current" ] && [ "$name" != "$current" ]; then
+    $force || die "$target is named $current already. To rename it, run bin/de down in each of its checkouts, then set ENV_REPO=$name in .devcontainer/env.conf (and \"name\" in devcontainer.json)"
+    warn "renaming $current to $name, environments created as $current are left as they are"
+  fi
+  if [ -n "$name" ]; then
+    repo="$name"
+  elif [ -n "$current" ]; then
+    repo="$current"
+  else
+    common="$(cd "$target" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+    repo="$(env_sanitize "$(basename "$(dirname "$common")")")"
+  fi
   if [ -d "$target/test/dummy" ] && [ -x "$target/bin/rails" ]; then
     up_command="env RAILS_ENV=test bin/rails app:db:prepare"
   elif [ -x "$target/bin/rails" ]; then
