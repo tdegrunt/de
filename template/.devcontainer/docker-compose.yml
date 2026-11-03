@@ -72,6 +72,8 @@ services:
     image: valkey/valkey:8
     labels: *env-labels
     restart: ${ENV_RESTART:-no}
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 2s
@@ -91,6 +93,8 @@ services:
 
 volumes:
   postgres-data:
+    labels: *env-labels
+  redis-data:
     labels: *env-labels
 
 networks:

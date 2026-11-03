@@ -108,8 +108,9 @@ The branch decides the kind (`PRIMARY_BRANCHES` and `PERSISTENT_BRANCHES` in
   `staging` and `develop`. Their data survives restarts and `bin/de down`,
   and `bin/de prune` never touches them.
 - **Ephemeral**: any other branch. They start from an empty database, filled
-  only from the repository's schema, migrations and seeds, and are removed
-  completely when the worktree is done.
+  only from the repository's schema, migrations and seeds (or a copy of
+  another environment's data, see [Copying data](#copying-data)), and are
+  removed completely when the worktree is done.
 
 An environment is named `<repo>-<branch>` (`ENV_REPO` in `env.conf`, the
 branch lowercased with anything but letters, digits and dashes replaced), e.g.
@@ -125,7 +126,7 @@ no host ports are published.
 
 | Command | |
 | --- | --- |
-| `bin/de new <branch>` | Create a worktree next to the main checkout (`<repo>-<branch>`) and start its environment. Existing local or remote branches are checked out, new ones start from the default branch (`--from <ref>` for another). `--no-trust` as for `up` |
+| `bin/de new <branch>` | Create a worktree next to the main checkout (`<repo>-<branch>`) and start its environment. Existing local or remote branches are checked out, new ones start from the default branch (`--from <ref>` for another). `--copy-data` to start with a copy of another environment's data, see [Copying data](#copying-data). `--no-trust` as for `up` |
 | `bin/de up` | Create or start this checkout's environment and prepare its databases. `--rebuild` after changing `.devcontainer/`. Trusts the checkout's mise config on the host, `--no-trust` skips that |
 | `bin/de exec <cmd>` | Run a command in it, in the same directory relative to the checkout, e.g. `bin/de exec bin/rails test` |
 | `bin/de status` | Name, kind, containers, health and URLs |
@@ -167,6 +168,31 @@ bin/de prune             # catches anything removed without bin/de down
 ```
 
 `git worktree add` followed by `bin/de up` works the same.
+
+### Copying data
+
+A new worktree can start with a copy of the data of the environment it
+branches off, instead of an empty database:
+
+```sh
+bin/de new short-links --copy-data                  # every service but app
+bin/de new short-links --copy-data=postgres,redis   # only these
+bin/de new short-links --copy-data --copy-data-from develop
+```
+
+It copies the named volumes of those services (`postgres-data` and
+`redis-data` in the template) from the environment of the checkout of the
+branch the new one starts from: the default branch, or `--from`. For an
+existing branch, that's this checkout's, and `--copy-data-from` picks any
+other checkout, like `bin/de code` does. The copies belong to the new
+environment, so `bin/de down` removes them with it, and `bin/de up` then
+runs the branch's pending migrations on them.
+
+For a consistent copy, the services whose data is copied are stopped in the
+source environment meanwhile, and started again afterwards. `bin/de new`
+asks first when they're running, `--yes` skips that. A service needs a named
+volume to be copied: a repository set up before `redis-data` was in the
+template adds it to its `docker-compose.yml` itself.
 
 To open worktrees from Orca in VS Code inside their devcontainer, set the
 terminal command of VS Code under Settings → Open In to `de code`. Orca adds

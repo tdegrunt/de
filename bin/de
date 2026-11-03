@@ -46,11 +46,18 @@ fi
 # The commands of a repository's bin/de, also listed by the de repository's help
 usage_commands() {
   cat <<'EOF'
-  new <branch> [folder] [--from <ref>] [--no-trust]
+  new <branch> [folder] [--from <ref>] [--copy-data[=<services>]]
+      [--copy-data-from <checkout>] [--yes] [--no-trust]
                      Create a worktree for a branch (next to the main checkout
                      as <repository>-<branch> unless a folder is given) and
                      start its environment. New branches start from the
                      default branch, or from --from. --no-trust as for up.
+                     --copy-data starts it with a copy of the volumes of the
+                     environment it branches off (an existing branch: this
+                     checkout's, or --copy-data-from's), of every service but
+                     app or the listed ones, e.g. --copy-data=postgres,redis.
+                     Those services are stopped during the copy, after
+                     confirming, or right away with --yes.
   up [--rebuild] [--no-trust]
                      Create or start this checkout's environment and prepare
                      its databases. --rebuild recreates the containers after
@@ -179,14 +186,25 @@ env_is_persistent_branch() {
 env_name_for() {
   local dir="$1" branch name
   branch="$(git -C "$dir" symbolic-ref --short -q HEAD || true)"
-  if [ -n "$branch" ] && env_is_primary_branch "$branch"; then
-    name="$(env_sanitize "$ENV_REPO")"
-  elif [ -n "$branch" ]; then
-    name="$(env_sanitize "$ENV_REPO-$branch")"
-  else
-    name="$(env_sanitize "$ENV_REPO-detached-$(basename "$dir")")"
+  if [ -n "$branch" ]; then
+    env_name_for_branch "$branch"
+    return
   fi
-  # Compose project names and OrbStack domain labels max out at 63 characters
+  env_name_shorten "$(env_sanitize "$ENV_REPO-detached-$(basename "$dir")")"
+}
+
+# Prints the environment name for a checkout of a branch
+env_name_for_branch() {
+  if env_is_primary_branch "$1"; then
+    env_name_shorten "$(env_sanitize "$ENV_REPO")"
+  else
+    env_name_shorten "$(env_sanitize "$ENV_REPO-$1")"
+  fi
+}
+
+# Compose project names and OrbStack domain labels max out at 63 characters
+env_name_shorten() {
+  local name="$1"
   if [ "${#name}" -gt 63 ]; then
     name="${name:0:54}-$(printf '%s' "$name" | shasum | cut -c1-8)"
   fi
@@ -331,6 +349,124 @@ checkouts() {
     /^worktree / { if (path != "") print path "\t" branch; path = substr($0, 10); branch = "" }
     /^branch /   { branch = substr($0, 8); sub("^refs/heads/", "", branch) }
     END          { if (path != "") print path "\t" branch }'
+}
+
+# Prints the checkout a branch, environment name, worktree folder name or a
+# path in it names, nothing when none does
+checkout_for() {
+  local path branch
+  while IFS=$'\t' read -r path branch; do
+    [ -d "$path" ] || continue
+    if [ "$1" = "$branch" ] || [ "$1" = "$(basename "$path")" ] || [ "$1" = "$(env_name_for "$path")" ]; then
+      printf '%s' "$path"
+      return
+    fi
+  done < <(checkouts)
+  # Or any folder in a checkout, e.g. the absolute path Orca's "Open in" adds
+  if [ -d "$1" ]; then
+    (cd "$(git -C "$1" rev-parse --show-toplevel)" && pwd -P) || die "$1 is not inside a git checkout"
+  fi
+}
+
+# Lists the checkouts with their environment names, on stderr
+checkouts_print() {
+  local path branch
+  while IFS=$'\t' read -r path branch; do
+    [ -d "$path" ] && printf '  %-40s %-30s %s\n' "$(env_name_for "$path")" "${branch:-(detached)}" "$path" >&2
+  done < <(checkouts)
+}
+
+# --- Copying data -------------------------------------------------------
+
+# Succeeds when service $1 is one of the comma separated services in $2, or
+# with "all", when it's any service but the devcontainer itself (app, whose
+# docker-in-docker volume is a cache)
+copy_data_wants() {
+  if [ "$2" = all ]; then
+    [ "$1" != app ]
+  else
+    [[ ",$2," == *",$1,"* ]]
+  fi
+}
+
+# Finds the named volumes of environment $1 to copy, those of the services $2
+# wants (see copy_data_wants). Sets COPY_VOLUMES ("<volume> <compose volume
+# key> <image>"), and COPY_RUNNING and COPY_RUNNING_SERVICES: the running
+# containers mounting them and their services.
+copy_data_find() {
+  local src="$1" wanted="$2" id service image volume key available="" chosen="" found
+  COPY_VOLUMES=() COPY_RUNNING="" COPY_RUNNING_SERVICES=""
+  for id in $(docker container ls -aq --filter "label=com.docker.compose.project=$src"); do
+    service="$(docker container inspect "$id" --format '{{ index .Config.Labels "com.docker.compose.service" }}')"
+    image="$(docker container inspect "$id" --format '{{ .Config.Image }}')"
+    found=false
+    # Named volumes of this environment only, not anonymous or shared ones
+    for volume in $(docker container inspect "$id" --format '{{ range .Mounts }}{{ if eq .Type "volume" }}{{ println .Name }}{{ end }}{{ end }}'); do
+      [ "$(docker volume inspect "$volume" --format '{{ index .Labels "com.docker.compose.project" }}')" = "$src" ] || continue
+      key="$(docker volume inspect "$volume" --format '{{ index .Labels "com.docker.compose.volume" }}')"
+      [ -n "$key" ] || continue
+      found=true
+      copy_data_wants "$service" "$wanted" || continue
+      [ "$volume" = "${src}_$key" ] || die "volume $volume of $service has a fixed name, it can't be copied"
+      COPY_VOLUMES+=("$volume $key $image")
+    done
+    $found || continue
+    available="$available $service"
+    copy_data_wants "$service" "$wanted" || continue
+    chosen="$chosen $service "
+    if [ "$(docker container inspect "$id" --format '{{ .State.Running }}')" = true ]; then
+      COPY_RUNNING="$COPY_RUNNING $id"
+      COPY_RUNNING_SERVICES="$COPY_RUNNING_SERVICES $service"
+    fi
+  done
+
+  if [ "$wanted" != all ]; then
+    for service in ${wanted//,/ }; do
+      [[ "$chosen" == *" $service "* ]] ||
+        die "$src has no service $service with a named volume, these have one:${available:- none}"
+    done
+  fi
+  [ "${#COPY_VOLUMES[@]}" -gt 0 ] || die "$src has no data to copy, its services with a named volume:${available:- none}"
+}
+
+# Copies the COPY_VOLUMES of environment $1 into new volumes for the
+# environment of branch $2 in checkout $3, labelled as compose creates them,
+# so bin/de up adopts them and bin/de down removes them. The services using
+# them are stopped meanwhile, so e.g. postgres's files are consistent, and
+# started again afterwards, also when the copy fails.
+copy_data() {
+  local src="$1" branch="$2" path="$3" target kind=ephemeral entry volume key image
+  target="$(env_name_for_branch "$branch")"
+  env_is_persistent_branch "$branch" && kind=persistent
+
+  if [ -n "$COPY_RUNNING" ]; then
+    log "Stopping$COPY_RUNNING_SERVICES of $src for the copy"
+    # shellcheck disable=SC2086
+    run docker container stop $COPY_RUNNING >/dev/null
+    # shellcheck disable=SC2064
+    trap "log 'Starting$COPY_RUNNING_SERVICES of $src again'; run docker container start $COPY_RUNNING >/dev/null" EXIT
+  fi
+
+  for entry in "${COPY_VOLUMES[@]}"; do
+    read -r volume key image <<<"$entry"
+    log "Copying $volume to ${target}_$key"
+    run docker volume create \
+      --label "dev.env.name=$target" --label "dev.env.kind=$kind" --label "dev.env.branch=$branch" \
+      --label "dev.env.path=$path" --label "dev.env.gitdir=$ENV_GIT_COMMON_DIR" \
+      --label "com.docker.compose.project=$target" --label "com.docker.compose.volume=$key" \
+      "${target}_$key" >/dev/null
+    run docker run --rm --user 0:0 --entrypoint "" \
+      -v "$volume:/from:ro" -v "${target}_$key:/to" "$image" cp -a /from/. /to/
+    grep -qE "^  $key:" "$path/.devcontainer/docker-compose.yml" ||
+      warn "$branch's docker-compose.yml has no volume $key, the copy isn't used"
+  done
+
+  if [ -n "$COPY_RUNNING" ]; then
+    trap - EXIT
+    log "Starting$COPY_RUNNING_SERVICES of $src again"
+    # shellcheck disable=SC2086
+    run docker container start $COPY_RUNNING >/dev/null
+  fi
 }
 
 # --- Commands -----------------------------------------------------------
@@ -555,11 +691,17 @@ cmd_upgrade() {
 }
 
 cmd_new() {
-  local branch="" folder="" from="" file dest up_args=()
-  local usage_line="usage: bin/de new <branch> [folder] [--from <ref>] [--no-trust]"
+  local branch="" folder="" from="" file dest up_args=() existing=false
+  local copy="" copy_from="" yes=false source="" source_name="" target_name path checkout_branch answer
+  local usage_line="usage: bin/de new <branch> [folder] [--from <ref>] [--copy-data[=<services>]] [--copy-data-from <checkout>] [--yes] [--no-trust]"
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --from) [ "$#" -ge 2 ] || die "$usage_line"; from="$2"; shift 2 ;;
+      --copy-data) copy=all; shift ;;
+      --copy-data=*) copy="${1#--copy-data=}"; [ -n "$copy" ] || die "$usage_line"; shift ;;
+      --copy-data-from) [ "$#" -ge 2 ] || die "$usage_line"; copy_from="$2"; shift 2 ;;
+      --copy-data-from=*) copy_from="${1#--copy-data-from=}"; shift ;;
+      --yes | -y) yes=true; shift ;;
       --no-trust) up_args+=(--no-trust); shift ;;
       -*) die "$usage_line" ;;
       *)
@@ -573,22 +715,66 @@ cmd_new() {
   done
   [ -n "$branch" ] || die "$usage_line"
   git check-ref-format --branch "$branch" >/dev/null || die "$branch isn't a valid branch name"
+  [ -n "$copy_from" ] && [ -z "$copy" ] && copy=all
 
   [ -n "$folder" ] || folder="$(dirname "$ENV_MAIN_CHECKOUT")/$(env_sanitize "$ENV_REPO-$branch")"
   [ -e "$folder" ] && die "$folder already exists"
 
+  if git -C "$ENV_PATH" show-ref --verify --quiet "refs/heads/$branch" ||
+    [ -n "$(git -C "$ENV_PATH" for-each-ref --format='%(refname)' "refs/remotes/*/$branch")" ]; then
+    existing=true
+  elif [ -z "$from" ]; then
+    from="$(git -C "$ENV_PATH" symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo HEAD)"
+    # Prefer the local branch when there is one, e.g. main over origin/main
+    git -C "$ENV_PATH" show-ref --verify --quiet "refs/heads/${from#origin/}" && from="${from#origin/}"
+  fi
+
+  # Everything about the copy is checked before the worktree is created.
+  # The data comes from the checkout of the branch the new one starts from,
+  # or for an existing branch, from this checkout.
+  if [ -n "$copy" ]; then
+    if [ -n "$copy_from" ]; then
+      source="$(checkout_for "$copy_from")"
+      if [ -z "$source" ]; then
+        warn "no checkout of $ENV_REPO matches $copy_from, these exist:"
+        checkouts_print
+        die "nothing created"
+      fi
+    elif $existing || [ "$from" = HEAD ]; then
+      source="$ENV_PATH"
+    else
+      while IFS=$'\t' read -r path checkout_branch; do
+        if [ -d "$path" ] && [ -n "$checkout_branch" ] &&
+          { [ "$from" = "$checkout_branch" ] || [ "$from" = "origin/$checkout_branch" ]; }; then
+          source="$path"
+          break
+        fi
+      done < <(checkouts)
+      [ -n "$source" ] || die "$from isn't checked out, so it has no environment to copy data from. Pick one with --copy-data-from <checkout>"
+    fi
+    source_name="$(env_name_for "$source")"
+    target_name="$(env_name_for_branch "$branch")"
+    [ "$source_name" != "$target_name" ] || die "$branch's environment is $source_name itself, nothing to copy"
+    [ -n "$(docker container ls -aq --filter "label=com.docker.compose.project=$source_name")" ] ||
+      die "$source_name has no environment to copy data from, start it with bin/de up in $source"
+    [ -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$target_name")" ] ||
+      die "$target_name has volumes already, remove them first, e.g. with bin/de prune"
+    copy_data_find "$source_name" "$copy"
+
+    log "Copying data from $source_name ($source) to $target_name:"
+    printf '  %s\n' "${COPY_VOLUMES[@]%% *}" >&2
+    if [ -n "$COPY_RUNNING" ] && ! $yes; then
+      [ -t 0 ] || die "pass --yes to stop$COPY_RUNNING_SERVICES of $source_name for the copy without a terminal"
+      read -r -p "This stops$COPY_RUNNING_SERVICES of $source_name during the copy, then starts them again. Continue? [y/N] " answer
+      [ "$answer" = y ] || [ "$answer" = Y ] || die "nothing created"
+    fi
+  fi
+
   log "Creating worktree $folder for $branch"
-  if git -C "$ENV_PATH" show-ref --verify --quiet "refs/heads/$branch"; then
-    run git -C "$ENV_PATH" worktree add "$folder" "$branch"
-  elif [ -n "$(git -C "$ENV_PATH" for-each-ref --format='%(refname)' "refs/remotes/*/$branch")" ]; then
-    # Creates a local branch tracking the remote one
+  if $existing; then
+    # Creates a local branch tracking the remote one, when there's only that
     run git -C "$ENV_PATH" worktree add "$folder" "$branch"
   else
-    if [ -z "$from" ]; then
-      from="$(git -C "$ENV_PATH" symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo HEAD)"
-      # Prefer the local branch when there is one, e.g. main over origin/main
-      git -C "$ENV_PATH" show-ref --verify --quiet "refs/heads/${from#origin/}" && from="${from#origin/}"
-    fi
     run git -C "$ENV_PATH" worktree add -b "$branch" "$folder" "$from"
   fi
   folder="$(cd "$folder" && pwd -P)"
@@ -610,6 +796,7 @@ cmd_new() {
     warn "$branch's bin/de doesn't support --no-trust, it won't trust mise config anyway"
     up_args=()
   fi
+  [ -z "$copy" ] || copy_data "$source_name" "$branch" "$folder"
   run "$folder/bin/de" up ${up_args[@]+"${up_args[@]}"}
 
   cat <<EOF
@@ -763,29 +950,14 @@ EOF
 # itself: vscli resolves ${localWorkspaceFolder} in devcontainer.json to
 # /workspaces/<folder name> instead of the host path.
 cmd_code() {
-  local target="$ENV_PATH" path branch name host_hex
+  local target="$ENV_PATH" name host_hex
   if [ "$#" -gt 1 ]; then
     die "usage: bin/de code [branch | environment | folder | path]"
   elif [ "$#" -eq 1 ]; then
-    target=""
-    while IFS=$'\t' read -r path branch; do
-      [ -d "$path" ] || continue
-      if [ "$1" = "$branch" ] || [ "$1" = "$(basename "$path")" ] || [ "$1" = "$(env_name_for "$path")" ]; then
-        target="$path"
-        break
-      fi
-    done < <(checkouts)
-    # Or any folder in a checkout, e.g. the absolute path Orca's "Open in" adds
-    if [ -z "$target" ] && [ -d "$1" ]; then
-      target="$(cd "$(git -C "$1" rev-parse --show-toplevel)" && pwd -P)" ||
-        die "$1 is not inside a git checkout"
-    fi
-
+    target="$(checkout_for "$1")"
     if [ -z "$target" ]; then
       warn "no checkout of $ENV_REPO matches $1, these exist:"
-      while IFS=$'\t' read -r path branch; do
-        [ -d "$path" ] && printf '  %-40s %-30s %s\n' "$(env_name_for "$path")" "${branch:-(detached)}" "$path" >&2
-      done < <(checkouts)
+      checkouts_print
       die "create one with: bin/de new $1"
     fi
   fi
