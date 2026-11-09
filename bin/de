@@ -469,6 +469,18 @@ copy_data() {
   fi
 }
 
+# Prints what in a checkout's devcontainer.json keeps bin/de from working,
+# e.g. one kept from before de that starts another compose file, nothing when
+# it's fine
+devcontainer_json_problems() {
+  local file="$1/.devcontainer/devcontainer.json"
+  [ -f "$file" ] || { echo "there's no .devcontainer/devcontainer.json"; return; }
+  grep -q '"dockerComposeFile".*docker-compose\.yml' "$file" ||
+    echo "its \"dockerComposeFile\" isn't docker-compose.yml, so another setup starts"
+  grep -q '"workspaceFolder": *"/workspaces\${localWorkspaceFolder}"' "$file" ||
+    echo "its \"workspaceFolder\" isn't \"/workspaces\${localWorkspaceFolder}\", where docker-compose.yml mounts the checkout"
+}
+
 # --- Commands -----------------------------------------------------------
 
 # Writes the local feature devcontainer.json includes as ./de-host, from
@@ -634,6 +646,9 @@ cmd_init() {
     sed -i '' -e "s|@REPO@|$repo|g" -e "s|@UP_COMMAND@|$up_command|g" "$target/$rel"
   done < <(cd "$DE_TEMPLATE" && find . -type f | sort)
 
+  devcontainer_json_problems "$target" | while IFS= read -r problem; do
+    warn ".devcontainer/devcontainer.json: $problem. Change it as in $DE_TEMPLATE/.devcontainer/devcontainer.json, or replace it with --force"
+  done
   if ! grep -q '"\./de-host"' "$target/.devcontainer/devcontainer.json"; then
     warn "add \"./de-host\": {} to the features in .devcontainer/devcontainer.json, for your own tools from $DE_CONFIG"
   fi
@@ -811,7 +826,7 @@ EOF
 }
 
 cmd_up() {
-  local up_args=() trust=true arg other entry health deadline
+  local up_args=() trust=true arg other entry health deadline problems
   for arg in "$@"; do
     case "$arg" in
       --rebuild) up_args=(--remove-existing-container) ;;
@@ -821,6 +836,9 @@ cmd_up() {
   done
 
   log "Environment $ENV_NAME ($ENV_KIND, branch ${ENV_BRANCH:-detached}) for $ENV_PATH"
+
+  problems="$(devcontainer_json_problems "$ENV_PATH")"
+  [ -z "$problems" ] || die ".devcontainer/devcontainer.json doesn't fit bin/de:"$'\n'"$(sed 's/^/  /' <<<"$problems")"$'\n'"Change it as in the de repository's template/.devcontainer/devcontainer.json"
 
   # Share nothing: refuse to adopt another checkout's resources
   other="$(env_label "$ENV_NAME" dev.env.path)"

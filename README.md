@@ -83,7 +83,13 @@ de init ~/code/myapp    # or `de init` from inside it
   [template/](template/), `.devcontainer/` (`env.conf`, `devcontainer.json`,
   `docker-compose.yml`, `postStart.sh`), `.worktreeinclude` and `orca.yaml`.
   `--force` replaces them with the template again. `@REPO@` becomes the
-  repository's name, `@UP_COMMAND@` how it prepares its test database.
+  repository's name, `@UP_COMMAND@` how it prepares its test database. A
+  repository that had a devcontainer before keeps its own
+  `devcontainer.json`: `de init` warns, and `bin/de up` refuses to start,
+  until its `dockerComposeFile` is `docker-compose.yml` and its
+  `workspaceFolder` `/workspaces${localWorkspaceFolder}`, as in the template.
+  Move what its old compose file and Dockerfile did into
+  `docker-compose.yml` and `postStart.sh`, then remove them.
 - `.devcontainer/.env`, `.devcontainer/de-host/` and `mise.local.toml` are
   added to its `.gitignore`.
 
