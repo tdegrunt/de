@@ -1,7 +1,7 @@
 # de
 
 Development environments: every checkout of a repository, the main one and
-each git worktree, runs in its own devcontainer on OrbStack, with its own
+each git worktree, runs in its own devcontainer on Docker, with its own
 services, volumes and network. Nothing is shared between environments, so
 several branches can run their tests at the same time.
 
@@ -49,9 +49,12 @@ That replaces an alias like `alias de='"$(git rev-parse --show-toplevel)/bin/de"
 remove it, as an alias takes precedence over the PATH. A shorthand to open a
 checkout in VS Code still works as `alias vc='de code'` (`vc main`).
 
-Needs OrbStack, Node (for `npx @devcontainers/cli`, unless `devcontainer` is
-installed), Git 2.48 or later, and jq when you have a
-`~/.config/de/config.json`.
+Needs Docker (OrbStack, Docker Desktop or another), Node (for
+`npx @devcontainers/cli`, unless `devcontainer` is installed), Git 2.48 or
+later, and jq when you have a `~/.config/de/config.json`. With
+[OrbStack](https://orbstack.dev), every service is reachable from the Mac by
+name (see [Kinds](#kinds)); with other Docker runtimes, publish a port to reach
+it.
 
 ## Setting up a repository
 
@@ -120,13 +123,14 @@ The branch decides the kind (`PRIMARY_BRANCHES` and `PERSISTENT_BRANCHES` in
 
 An environment is named `<repo>-<branch>` (`ENV_REPO` in `env.conf`, the
 branch lowercased with anything but letters, digits and dashes replaced), e.g.
-`myapp-fix-login`, or just `<repo>` for a primary branch, e.g. `myapp`, which
-makes the app `app.myapp.orb.local`. That's its Docker Compose project, and
+`myapp-fix-login`, or just `<repo>` for a primary branch, e.g. `myapp`. That's
+its Docker Compose project, and
 every container, volume and network carries the labels `dev.env.name`,
 `dev.env.kind`, `dev.env.branch`, `dev.env.path` and `dev.env.gitdir`.
-Cleanup selects by these labels only. Services are reachable from the Mac as
-`<service>.<env>.orb.local`, e.g. `postgres.myapp-fix-login.orb.local:5432`;
-no host ports are published.
+Cleanup selects by these labels only. No host ports are published. With
+OrbStack, services are reachable from the Mac as `<service>.<env>.orb.local`,
+e.g. `postgres.myapp-fix-login.orb.local:5432`, and the app of `myapp` as
+`app.myapp.orb.local`.
 
 ## Commands
 
@@ -227,7 +231,8 @@ for a branch you don't trust yet, and trust it yourself with `mise trust`.
 
 System tests use the environment's own headless Selenium container
 (`SELENIUM_URL` in `env.conf`). To watch a failing test in a browser on the
-Mac, start a Selenium there and override it for one command:
+Mac, start a Selenium there and override it for one command. That browser
+reaches the test server at `app.<env>.orb.local`, so this needs OrbStack:
 
 ```sh
 SELENIUM_URL=http://host.docker.internal:4444/ HEADLESS=0 bin/de exec bin/rails test:system
