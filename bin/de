@@ -785,6 +785,14 @@ cmd_new() {
     fi
   fi
 
+  # A worktree whose folder was removed without git stays registered, and
+  # keeps its branch checked out, until git prunes it. Only git's records
+  # go, the environment stays for bin/de up to reuse or bin/de prune.
+  if [ -n "$(git -C "$ENV_PATH" worktree prune --dry-run 2>&1)" ]; then
+    log "Pruning worktrees whose folder is gone"
+    run git -C "$ENV_PATH" worktree prune --verbose
+  fi
+
   log "Creating worktree $folder for $branch"
   if $existing; then
     # Creates a local branch tracking the remote one, when there's only that
