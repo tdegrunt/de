@@ -65,17 +65,25 @@ usage_commands() {
                      checkout's mise config on the host, unless --no-trust.
   exec <command...>  Run a command in this checkout's devcontainer, in the same
                      directory relative to the checkout.
+  kamal <arguments>  Run the checkout's bin/kamal in its devcontainer, with
+                     a Docker config of its own (~/.docker-kamal there): its
+                     logins are stored in it, not by the credential helper
+                     VS Code puts in ~/.docker/config.json, which only works
+                     while VS Code is attached.
   status             Show the environment's containers, health and URLs.
-  site [--external | --print] [<subdomain>]
+  site [--external | --print | --close] [<subdomain>]
                      Open the app, https://[<subdomain>.]app.<env>.orb.local
                      (OrbStack's domain), at SITE_SUBDOMAIN from env.conf
                      unless one is given: in Orca's browser in an Orca
                      terminal, else (or with --external) the default
-                     browser. --print prints it.
-  procs [<mprocs options>]
+                     browser. --print prints it. --close then closes the
+                     Orca terminal tab it ran in, as for a quick command.
+  procs [--here] [<mprocs options>]
                      Run the processes from Procfile.dev in mprocs on this
                      machine, each through bin/de exec, starting the
-                     environment first if needed.
+                     environment first if needed. In an Orca terminal in a
+                     new tab of this checkout's worktree, "procs", unless
+                     --here.
   start [<mprocs options>]
                      bin/de code, then bin/de procs.
   code [<checkout>]  Open a checkout in VS Code inside its devcontainer,
@@ -947,6 +955,22 @@ cmd_exec() {
     bash -c 'cd "$1" && shift && PATH="$HOME/.local/bin:$PATH" exec mise exec -- "$@"' de-exec "$dir" "$@"
 }
 
+# bin/kamal in the devcontainer, with DOCKER_CONFIG ~/.docker-kamal: the
+# config.json there stores Kamal's logins itself, as ~/.docker/config.json's
+# credsStore (VS Code's Dev Containers sets one) only works while VS Code is
+# attached. Its buildx and contexts are ~/.docker's, so Kamal's builders stay.
+cmd_kamal() {
+  [ -x "$ENV_PATH/bin/kamal" ] || die "$ENV_PATH has no bin/kamal"
+  cmd_exec bash -c '
+    kamal="$1" && shift
+    config="$HOME/.docker-kamal"
+    mkdir -p "$config" "$HOME/.docker/buildx" "$HOME/.docker/contexts"
+    ln -sfn "$HOME/.docker/buildx" "$config/buildx"
+    ln -sfn "$HOME/.docker/contexts" "$config/contexts"
+    DOCKER_CONFIG="$config" exec "$kamal" "$@"
+  ' de-kamal "$ENV_PATH_IN_CONTAINER/bin/kamal" "$@"
+}
+
 cmd_status() {
   local ids id service port
   [ "$#" -eq 0 ] || die "usage: bin/de status"
@@ -986,16 +1010,31 @@ EOF
   run docker network ls --filter "label=dev.env.name=$ENV_NAME"
 }
 
+# Prints Orca's CLI when running in Orca: an agent's shell has
+# ORCA_CLI_COMMAND, a terminal tab only ORCA_CLI_BIN_DIR
+orca_cli() {
+  if [ -n "${ORCA_CLI_COMMAND:-}" ]; then
+    echo "$ORCA_CLI_COMMAND"
+  elif [ -n "${ORCA_CLI_BIN_DIR:-}" ] && [ -x "$ORCA_CLI_BIN_DIR/orca" ]; then
+    echo "$ORCA_CLI_BIN_DIR/orca"
+  else
+    return 1
+  fi
+}
+
 # Opens the app at OrbStack's domain for its container, over https. In an
-# Orca terminal (ORCA_CLI_COMMAND) in Orca's browser, as a tab of this
+# Orca terminal (orca_cli) in Orca's browser, as a tab of this
 # checkout's worktree; else, or with --external, in the default browser.
+# --close closes the Orca terminal tab it ran in (ORCA_TERMINAL_HANDLE) once
+# the site is open, for a quick command, whose tab stays after an exit.
 cmd_site() {
-  local print=false external=false subdomain="${SITE_SUBDOMAIN:-}" url
+  local print=false external=false close=false subdomain="${SITE_SUBDOMAIN:-}" url orca
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --print) print=true ;;
       --external) external=true ;;
-      -*) die "usage: bin/de site [--external | --print] [subdomain]" ;;
+      --close) close=true ;;
+      -*) die "usage: bin/de site [--external | --print | --close] [subdomain]" ;;
       *) subdomain="$1" ;;
     esac
     shift
@@ -1008,7 +1047,7 @@ cmd_site() {
   fi
   env_running "$ENV_NAME" || die "$ENV_NAME isn't running, start it with bin/de up"
 
-  if ! $external && [ -n "${ORCA_CLI_COMMAND:-}" ] && "$ORCA_CLI_COMMAND" tab create --url "$url" --worktree "path:$ENV_PATH" --json >/dev/null; then
+  if ! $external && orca="$(orca_cli)" && "$orca" tab create --url "$url" --worktree "path:$ENV_PATH" --json >/dev/null; then
     log "Opened $url in Orca"
   elif command -v open >/dev/null; then
     open "$url"
@@ -1018,6 +1057,11 @@ cmd_site() {
     log "Opened $url"
   else
     echo "$url"
+    return
+  fi
+
+  if $close && [ -n "${ORCA_TERMINAL_HANDLE:-}" ] && orca="$(orca_cli)"; then
+    "$orca" terminal close --terminal "$ORCA_TERMINAL_HANDLE" --tab --json >/dev/null
   fi
 }
 
@@ -1059,12 +1103,25 @@ procs_stop_leftovers() {
     done'
 }
 
+# In an Orca terminal (orca_cli), opens a terminal tab "procs" in
+# this checkout's worktree that runs bin/de procs --here, with the same
+# mprocs options. Fails when Orca can't, so the caller runs it here instead.
+procs_in_orca_tab() {
+  local command arg orca
+  orca="$(orca_cli)" || return 1
+  command="$(printf '%q' "$ENV_PATH/bin/de") procs --here"
+  for arg in "$@"; do command+=" $(printf '%q' "$arg")"; done
+  "$orca" terminal create --worktree "path:$ENV_PATH" --title procs \
+    --command "$command" --focus --json >/dev/null
+}
+
 # mprocs gives every process its own terminal, which bin/de exec passes on
 # into the container. Stopping a process types Ctrl-C into that terminal:
 # a signal would only stop bin/de exec here, and leave the process running
 # in the container. PORT defaults to 3000, as bin/dev sets it.
 cmd_procs() {
-  local procfile="" file config status=0
+  local procfile="" file config status=0 here=false
+  if [ "${1:-}" = --here ]; then here=true; shift; fi
   command -v mprocs >/dev/null 2>&1 || die "bin/de procs needs mprocs: brew install mprocs"
   for file in Procfile.dev Procfile; do
     if [ -f "$ENV_PATH/$file" ]; then procfile="$file"; break; fi
@@ -1074,6 +1131,14 @@ cmd_procs() {
   if ! env_running "$ENV_NAME"; then
     log "Environment $ENV_NAME isn't running, starting it"
     "$ENV_PATH/bin/de" up || die "bin/de up failed"
+  fi
+
+  if ! $here && orca_cli >/dev/null; then
+    if procs_in_orca_tab "$@"; then
+      log "Running $procfile in mprocs in Orca's terminal tab procs"
+      return
+    fi
+    warn "Orca couldn't open a terminal tab, running $procfile here"
   fi
 
   # mprocs reads a config as YAML or JSON by its extension
@@ -1254,7 +1319,7 @@ fi
 
 case "$command" in
   help | -h | --help) usage; exit ;;
-  initialize | new | up | exec | status | site | procs | start | code | down | prune) ;;
+  initialize | new | up | exec | kamal | status | site | procs | start | code | down | prune) ;;
   init | update | upgrade) die "run de $command from the de repository, which bin/de comes from" ;;
   *) usage >&2; die "unknown command: $command" ;;
 esac

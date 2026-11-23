@@ -36,6 +36,7 @@ start with `de up`.
 | `de new <branch>` | Create a worktree for a branch and start its environment. `--copy-data` starts it with a copy of the data of the environment it branches off |
 | `de up` | Create or start this checkout's environment. `--rebuild` after changing `.devcontainer/` |
 | `de exec <cmd>` | Run a command in it, e.g. `de exec bin/rails test` |
+| `de kamal <args>` | Run the checkout's `bin/kamal` in it, e.g. `de kamal deploy -d staging`, with a Docker config of its own |
 | `de procs` | Run the processes from `Procfile.dev` in [mprocs](https://github.com/pvolok/mprocs), each in the container |
 | `de code [checkout]` | Open a checkout in VS Code inside its devcontainer (`CODE=cursor` for another editor) |
 | `de start` | `de code`, then `de procs` |
