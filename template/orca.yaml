@@ -1,0 +1,6 @@
+scripts:
+  setup: |
+    bin/de up
+  archive: |
+    bin/de down
+setupAgentStartupPolicy: wait-for-setup
