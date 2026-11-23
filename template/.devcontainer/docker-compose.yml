@@ -41,6 +41,9 @@ services:
     expose:
       - "3000"
 
+    # Reaps the processes of commands that are done: sleep, process 1
+    # otherwise, leaves them behind as zombies
+    init: true
     # Keeps the container running after the process ends
     command: ["sh", "-c", "sudo ln -sfn \"$$0\" \"$$1\" && exec sleep infinity", "${ENV_PATH_IN_CONTAINER}", "${ENV_WORKSPACE_LINK}"]
     restart: ${ENV_RESTART:-no}

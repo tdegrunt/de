@@ -205,7 +205,9 @@ For a consistent copy, the services whose data is copied are stopped in the
 source environment meanwhile, and started again afterwards. `bin/de new`
 asks first when they're running, `--yes` skips that. A service needs a named
 volume to be copied: a repository set up before `redis-data` was in the
-template adds it to its `docker-compose.yml` itself.
+template adds it to its `docker-compose.yml` itself. The same goes for
+`init: true` on the `app` service, which reaps finished processes instead
+of leaving zombies; `bin/de up --rebuild` applies it.
 
 To open worktrees from Orca in VS Code inside their devcontainer, set the
 terminal command of VS Code under Settings → Open In to `de code`. Orca adds
