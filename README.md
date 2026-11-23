@@ -141,6 +141,8 @@ e.g. `postgres.myapp-fix-login.orb.local:5432`, and the app of `myapp` as
 | `bin/de exec <cmd>` | Run a command in it, in the same directory relative to the checkout, e.g. `bin/de exec bin/rails test` |
 | `bin/de status` | Name, kind, containers, health and URLs |
 | `bin/de site [subdomain]` | Open the app at `https://[<subdomain>.]app.<env>.orb.local`, at `SITE_SUBDOMAIN` from `env.conf` unless one is given: in Orca's browser from an Orca terminal, else (or with `--external`) the default browser. `--print` prints the URL |
+| `bin/de procs` | Run the processes from `Procfile.dev` in [mprocs](https://github.com/pvolok/mprocs) on the Mac, each through `bin/de exec`, starting the environment first if needed. Stopping a process types Ctrl-C into it, so it stops in the container too. Other options go to mprocs |
+| `bin/de start` | `bin/de code`, then `bin/de procs` |
 | `bin/de code [checkout]` | Open a checkout in VS Code inside its devcontainer, starting the environment first if needed. Takes a branch, environment name, worktree folder name or a path in it. `CODE=cursor` for another editor |
 | `bin/de down` | Ephemeral: remove it with its data. Persistent: stop it, keeping the data (`--destroy-persistent` deletes it after typing the name) |
 | `bin/de prune` | Remove ephemeral environments whose worktree or branch is gone (`--yes` skips the prompt) |
