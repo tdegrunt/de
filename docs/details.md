@@ -197,6 +197,9 @@ To open worktrees from Orca in VS Code inside their devcontainer, set the
 terminal command of VS Code under Settings → Open In to `de code`. Orca adds
 the worktree's path, and `de code <path>` opens the checkout that path is in.
 
+The same works for the database: an Open In entry running `de db` opens the
+worktree's database, e.g. in TablePlus or TablePro.
+
 ## Local files and secrets
 
 Ignored files listed in `.worktreeinclude`, like `.envrc` and

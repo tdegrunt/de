@@ -1374,9 +1374,10 @@ if [ -n "$DE_TEMPLATE" ]; then
     init | update) cmd_init "$@"; exit ;;
     upgrade) cmd_upgrade "$@"; exit ;;
   esac
-  # `code <folder>` (Orca's "Open in" runs it from /) opens the checkout that
-  # folder is in, from inside it, so a checkout's older bin/de handles it too
-  if [ "$command" = code ] && [ "$#" -eq 1 ] && [ -d "$1" ]; then
+  # `code <folder>`, `db <folder>` or `site <folder>` (Orca's "Open in" runs
+  # it from /, adding the worktree's path) is for the checkout that folder is
+  # in, run from inside it, so a checkout's older bin/de handles it too
+  if [[ "$command" =~ ^(code|db|site)$ ]] && [ "$#" -eq 1 ] && [ -d "$1" ]; then
     cd "$1"
     shift
   fi
