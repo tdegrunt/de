@@ -78,6 +78,14 @@ usage_commands() {
                      terminal, else (or with --external) the default
                      browser. --print prints it. --close then closes the
                      Orca terminal tab it ran in, as for a quick command.
+  db [--print] [<database>]
+                     Open the development database, as config/database.yml
+                     (read by bin/rails in the container) connects to it, at
+                     OrbStack's domain for its service, e.g.
+                     postgresql://postgres.<env>.orb.local/myapp_development,
+                     in the Mac's app for such URLs, e.g. TablePlus.
+                     <database> picks another one from database.yml than
+                     primary. --print prints the URL.
   procs [--here] [<mprocs options>]
                      Run the processes from Procfile.dev in mprocs on this
                      machine, each through bin/de exec, starting the
@@ -1065,6 +1073,68 @@ cmd_site() {
   fi
 }
 
+# Ruby for bin/de db, run by bin/rails runner in the container, so the
+# connection comes from config/database.yml as the app reads it (ERB,
+# DATABASE_URL and all). ARGV: environment name, its label for the
+# connection's name (empty for a primary branch), the database's name in
+# database.yml (empty for primary). Prints DB_URL=<url>, with the host, a
+# compose service, at OrbStack's domain for it, and a color (TablePlus'
+# statusColor) picked by the environment's name.
+DB_URL_RUBY='
+env, label, name = ARGV
+config = if name.to_s.empty?
+  ActiveRecord::Base.connection_db_config
+else
+  ActiveRecord::Base.configurations.configs_for(env_name: Rails.env, name: name) or
+    abort "no database #{name} in config/database.yml for #{Rails.env}"
+end
+h = config.configuration_hash
+scheme = { "postgresql" => "postgresql", "postgis" => "postgresql", "mysql2" => "mysql", "trilogy" => "mysql" }[config.adapter] or
+  abort "bin/de db does not support the #{config.adapter} adapter"
+host = h[:host].to_s
+if host.empty? || host == "localhost" || host.start_with?("127.", "/")
+  abort "#{config.name} in config/database.yml connects to #{host.empty? ? "a local socket" : host}, not to a service, e.g. host: <%= ENV.fetch(\"DB_HOST\", \"localhost\") %>"
+end
+host = "#{host}.#{env}.orb.local" unless host.include?(".")
+enc = ->(s) { ERB::Util.url_encode(s.to_s) }
+user = h[:username] ? enc[h[:username]] + (h[:password] ? ":#{enc[h[:password]]}" : "") + "@" : ""
+port = h[:port] ? ":#{h[:port]}" : ""
+db = h[:database].to_s
+title = label.to_s.empty? ? db : "#{db} (#{label})"
+# A color of its own per environment, the same every time
+colors = %w[007AFF 34C759 FF9500 AF52DE FF2D55 5AC8FA FFCC00 A2845E 30B0C7 FF3B30]
+color = colors[Zlib.crc32(env) % colors.size]
+query = { name: title, sslmode: (scheme == "postgresql" ? "disable" : nil), statusColor: color }.compact
+puts "DB_URL=#{scheme}://#{user}#{host}#{port}/#{enc[db]}?" + query.map { |k, v| "#{k}=#{enc[v]}" }.join("&")
+'
+
+# Opens the app's database (from config/database.yml, through bin/rails in
+# the container) in the Mac's app for postgresql:// or mysql:// URLs, e.g.
+# TablePlus, at OrbStack's domain for its service. --print prints the URL.
+cmd_db() {
+  local print=false name="" label="" url
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --print) print=true ;;
+      -*) die "usage: bin/de db [--print] [<database>]" ;;
+      *) name="$1" ;;
+    esac
+    shift
+  done
+  [ -x "$ENV_PATH/bin/rails" ] || die "$ENV_PATH has no bin/rails to read config/database.yml with"
+  [ "$ENV_NAME" = "$(env_name_shorten "$(env_sanitize "$ENV_REPO")")" ] || label="$ENV_NAME"
+
+  url="$(cd "$ENV_PATH" && cmd_exec bin/rails runner "$DB_URL_RUBY" "$ENV_NAME" "$label" "$name" | sed -n 's/^DB_URL=//p')"
+  [ -n "$url" ] || die "could not read the database's connection from config/database.yml"
+
+  if $print || ! command -v open >/dev/null; then
+    echo "$url"
+  else
+    open "$url"
+    log "Opened ${url%%\?*}"
+  fi
+}
+
 # In the container, every process of bin/de procs writes its process group
 # to /tmp/de-procs/<name>, see procs_stop_leftovers
 PROCS_WRAPPER='mkdir -p /tmp/de-procs && ps -o pgid= -p $$ | tr -d " " > "/tmp/de-procs/$1" && eval "$2"'
@@ -1319,7 +1389,7 @@ fi
 
 case "$command" in
   help | -h | --help) usage; exit ;;
-  initialize | new | up | exec | kamal | status | site | procs | start | code | down | prune) ;;
+  initialize | new | up | exec | kamal | status | site | db | procs | start | code | down | prune) ;;
   init | update | upgrade) die "run de $command from the de repository, which bin/de comes from" ;;
   *) usage >&2; die "unknown command: $command" ;;
 esac

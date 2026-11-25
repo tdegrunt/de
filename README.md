@@ -41,6 +41,7 @@ start with `de up`.
 | `de code [checkout]` | Open a checkout in VS Code inside its devcontainer (`CODE=cursor` for another editor) |
 | `de start` | `de code`, then `de procs` |
 | `de site [subdomain]` | Open the app in a browser |
+| `de db [database]` | Open the database in your database app, e.g. TablePlus, as `config/database.yml` connects to it |
 | `de status` | Name, kind, containers, health and URLs |
 | `de down` | Remove an ephemeral environment, or stop a persistent one (`main`, `develop`, …) keeping its data |
 | `de prune` | Remove environments whose worktree or branch is gone |
