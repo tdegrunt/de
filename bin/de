@@ -1377,9 +1377,10 @@ if [ -n "$DE_TEMPLATE" ]; then
   # `code <folder>`, `db <folder>` or `site <folder>` (Orca's "Open in" runs
   # it from /, adding the worktree's path) is for the checkout that folder is
   # in, run from inside it, so a checkout's older bin/de handles it too
-  if [[ "$command" =~ ^(code|db|site)$ ]] && [ "$#" -eq 1 ] && [ -d "$1" ]; then
-    cd "$1"
-    shift
+  # (the last argument, after any options)
+  if [[ "$command" =~ ^(code|db|site)$ ]] && [ "$#" -ge 1 ] && [ -d "${!#}" ]; then
+    cd "${!#}"
+    set -- "${@:1:$#-1}"
   fi
   # Everything else is for the checkout the current directory is in
   checkout="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git checkout"
