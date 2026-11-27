@@ -65,8 +65,10 @@ usage_commands() {
                      checkout's mise config on the host, unless --no-trust.
   exec <command...>  Run a command in this checkout's devcontainer, in the same
                      directory relative to the checkout.
-  kamal <arguments>  Run the checkout's bin/kamal in its devcontainer, with
-                     a Docker config of its own (~/.docker-kamal there): its
+  kamal <arguments>  Run Kamal in this checkout's devcontainer, from its
+                     root: bin/kamal, else the Gemfile's (bundle exec
+                     kamal), else kamal on its PATH. With a Docker config
+                     of its own (~/.docker-kamal there): its
                      logins are stored in it, not by the credential helper
                      VS Code puts in ~/.docker/config.json, which only works
                      while VS Code is attached.
@@ -963,20 +965,27 @@ cmd_exec() {
     bash -c 'cd "$1" && shift && PATH="$HOME/.local/bin:$PATH" exec mise exec -- "$@"' de-exec "$dir" "$@"
 }
 
-# bin/kamal in the devcontainer, with DOCKER_CONFIG ~/.docker-kamal: the
+# Kamal in the devcontainer (bin/kamal, the Gemfile's or the one on its
+# PATH), with DOCKER_CONFIG ~/.docker-kamal: the
 # config.json there stores Kamal's logins itself, as ~/.docker/config.json's
 # credsStore (VS Code's Dev Containers sets one) only works while VS Code is
 # attached. Its buildx and contexts are ~/.docker's, so Kamal's builders stay.
 cmd_kamal() {
-  [ -x "$ENV_PATH/bin/kamal" ] || die "$ENV_PATH has no bin/kamal"
+  local kamal=(kamal)
+  if [ -x "$ENV_PATH/bin/kamal" ]; then
+    kamal=("$ENV_PATH_IN_CONTAINER/bin/kamal")
+  elif [ -f "$ENV_PATH/Gemfile" ] && grep -Eq "^[[:space:]]*gem[[:space:]]+[\"']kamal[\"']" "$ENV_PATH/Gemfile"; then
+    kamal=(bundle exec kamal)
+  fi
+  # From the checkout root, where Kamal reads config/deploy.yml
+  cd "$ENV_PATH"
   cmd_exec bash -c '
-    kamal="$1" && shift
     config="$HOME/.docker-kamal"
     mkdir -p "$config" "$HOME/.docker/buildx" "$HOME/.docker/contexts"
     ln -sfn "$HOME/.docker/buildx" "$config/buildx"
     ln -sfn "$HOME/.docker/contexts" "$config/contexts"
-    DOCKER_CONFIG="$config" exec "$kamal" "$@"
-  ' de-kamal "$ENV_PATH_IN_CONTAINER/bin/kamal" "$@"
+    DOCKER_CONFIG="$config" exec "$@"
+  ' de-kamal "${kamal[@]}" "$@"
 }
 
 cmd_status() {
